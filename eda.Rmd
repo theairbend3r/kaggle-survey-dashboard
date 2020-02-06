@@ -1,0 +1,185 @@
+---
+title: "Kaggle Survey 2019  - EDA"
+author: "Akshaj Verma"
+output: html_notebook
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(lubridate)
+```
+
+
+## Read data.
+```{r}
+mcr_df_2019 <- read_csv("data/kaggle_survey_2019/multiple_choice_responses.csv")
+mcr_df_2018 <- read_csv("data/kaggle_survey_2018/multipleChoiceResponses.csv")
+# mcr_df_2017 <- read_csv("data/kaggle_survey_2017/multipleChoiceResponses.csv")
+
+questions_df_2019 <- read_csv("data/kaggle_survey_2019/questions_only.csv")
+questions_df_2018 <- read_csv("data/kaggle_survey_2018/SurveySchema.csv")
+# questions_df_2017 <- read_csv("data/kaggle_survey_2017/schema.csv")
+
+# text_res_df <- read_csv("data/other_text_responses.csv")
+# schema_df <- read_csv("data/survey_schema.csv")
+```
+
+
+## Helper Functions
+
+
+### Create Stats from multi answer choice questions
+
+```{r}
+createMultiQuesDF <- function(df, extra_cols, target_col, remove_cols) {
+  
+  subset_for_target_df <- df %>% select(contains(target_col), -contains(remove_cols))
+  
+  col_names <- subset_for_target_df %>%
+                  map(unique) %>%
+                  lapply(function(x) x[!is.na(x)])
+  
+  names(subset_for_target_df) <- unlist(col_names)
+  
+  extra_target_binded_df <- cbind(df %>% select(extra_cols), subset_for_target_df)
+  
+  extra_target_binded_df <- extra_target_binded_df %>%
+                              mutate_at((length(extra_cols)+1):ncol(extra_target_binded_df), function(x) if_else(is.na(x), 0, 1)) 
+
+  
+  return(extra_target_binded_df)
+}
+```
+
+
+## EDA
+
+### 2019 data
+```{r}
+mcr_df_2019 <- mcr_df_2019 %>% filter(row_number() != 1)
+mcr_df_2019 <- mcr_df_2019 %>% rename(
+                  time_to_finish = `Time from Start to Finish (seconds)`,
+                  age = Q1,
+                  gender = Q2,
+                  country = Q3,
+                  education = Q4,
+                  designation = Q5,
+                  company_size = Q6,
+                  ds_team_size_at_work = Q7,
+                  ml_at_company = Q8,
+                  yearly_salary = Q10,
+                  money_spent_on_ml_last_5_yrs = Q11,
+                  data_analysis_tool = Q14,
+                  coding_years_to_analyze_data = Q15,
+                  recom_prog_lang_to_beginners = Q19,
+                  used_tpu = Q22,
+                  years_used_ml = Q23
+                  )
+
+head(mcr_df_2019)
+```
+
+#### Analyse Questions with Multiple Answers
+```{r}
+createMultiQuesDF(df = mcr_df_2019, extra_cols = c("age", "gender", "country"), target_col = "Q17", remove_cols = "OTHER_TEXT")
+```
+
+```{r}
+questions_df_2019 %>%
+  gather(key = "key", value = "val")
+```
+
+
+
+
+
+#### 2018 data
+
+
+Q1
+Q2
+Q3
+Q4
+Q6
+Q9
+Q10
+Q11
+Q12
+Q13
+Q14
+Q15
+Q16
+Q18
+Q19
+Q21
+Q24
+Q25
+Q27
+Q28
+Q29
+Q30
+Q36
+Q38
+time_to_finish = `Time from Start to Finish (seconds)`,
+                  age = Q1,
+                  gender = Q2,
+                  country = Q3,
+                  education = Q4,
+                  designation = Q5,
+                  company_size = Q6,
+                  ds_team_size_at_work = Q7,
+                  ml_at_company = Q8,
+                  yearly_salary = Q10,
+                  money_spent_on_ml_last_5_yrs = Q11,
+                  data_analysis_tool = Q14,
+                  coding_years_to_analyze_data = Q15,
+                  used_tpu = Q22,
+                  years_used_ml = Q23
+```{r}
+mcr_df_2018 <- mcr_df_2018 %>% filter(row_number() != 1)
+mcr_df_2018 <- mcr_df_2018 %>%
+                # select(contains(c("Q1","Q2","Q3","Q4","Q6","Q9","Q10","Q11","Q12","Q13","Q14","Q15","Q16","Q18","Q19","Q21","Q24","Q25","Q27","Q28","Q29","Q30","Q36","Q38"))) %>%
+                rename(
+                  time_to_finish = `Time from Start to Finish (seconds)`,
+                  gender = Q1,
+                  age = Q2,
+                  country = Q3,
+                  education = Q4,
+                  designation = Q6,
+                  yearly_salary = Q9,
+                  ml_at_company = Q10,
+                  data_analysis_tool = Q12_MULTIPLE_CHOICE,
+                  recom_prog_lang_to_beginners = Q18,
+                  coding_years_to_analyze_data = Q24, 
+                  years_used_ml = Q25
+                  )
+
+head(mcr_df_2018)
+```
+
+```{r}
+mcr_df_2018 %>%
+  select(contains(c("gender", "age")))
+```
+
+```{r}
+createMultiQuesDF(df = mcr_df_2018, extra_cols = c("age", "gender", "country"), target_col = "Q27", remove_cols = "OTHER_TEXT")
+```
+
+```{r}
+questions_df_2018 %>%
+  filter(row_number() == 1) %>%
+  select(2:ncol(questions_df_2018)) %>%
+  gather(key = "key", value = "val") %>%
+  inner_join(questions_df_2019 %>%   gather(key = "key", value = "val"), "val") %>%
+  write.csv("combined_ques_1918.csv", row.names = FALSE)
+```
+
+
+

@@ -1,0 +1,804 @@
+---
+title: "Kaggle Survey 2019"
+author: "Akshaj Verma"
+output: flexdashboard::flex_dashboard
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(countrycode)
+library(purrr)
+library(highcharter)
+library(treemap)
+library(RColorBrewer)
+library(viridisLite)
+library(forcats)
+
+mcr_df_2019 <- read_csv("data/kaggle_survey_2019/multiple_choice_responses.csv")
+# mcr_df_2018 <- read_csv("data/kaggle_survey_2018/multipleChoiceResponses.csv")
+
+questions_df_2019 <- read_csv("data/kaggle_survey_2019/questions_only.csv")
+# questions_df_2018 <- read_csv("data/kaggle_survey_2018/SurveySchema.csv")
+
+# Create Stats from multi answer choice questions
+createMultiQuesDF <- function(df, extra_cols, target_col, remove_cols) {
+  
+  subset_for_target_df <- df %>% select(contains(target_col), -contains(remove_cols))
+  
+  col_names <- subset_for_target_df %>%
+                  map(unique) %>%
+                  lapply(function(x) x[!is.na(x)])
+  
+  names(subset_for_target_df) <- unlist(col_names)
+  
+  extra_target_binded_df <- cbind(df %>% select(extra_cols), subset_for_target_df)
+  
+  extra_target_binded_df <- extra_target_binded_df %>%
+                              mutate_at((length(extra_cols)+1):ncol(extra_target_binded_df), function(x) if_else(is.na(x), 0, 1)) 
+
+  
+  return(extra_target_binded_df)
+}
+
+
+## Plot heatmap after grouping by a column
+groupbyColHeatmap <- function(df, groupby_col, target_col, title, color_scheme, color_num) {
+  groupby_col <- sym(groupby_col)
+  target_col <- sym(target_col)
+  
+  df %>%
+    group_by(!! groupby_col, !! target_col) %>%
+    summarise(n = n()) %>%
+    na.omit() %>%
+    group_by(!! groupby_col) %>%
+    mutate(n_percent = round(n/sum(n) * 100, 2)) %>%
+    hchart(type = "heatmap", hcaes(x = !! target_col, y = !! groupby_col, value = n_percent, color = n_percent)) %>%
+    hc_colorAxis(stops = color_stops(colors = viridis(10))) %>%
+    hc_title(text = title)
+    # hc_colorAxis(stops = color_stops(colors = rev(brewer.pal(color_num, name = color_scheme))))
+}
+
+## Plot barchart of a column
+groupbyColBar <- function(df, groupby_col, title, remove_na = TRUE) {
+  groupby_col <- sym(groupby_col)
+  
+  if (remove_na == TRUE) {
+    df %>%
+      count(!! groupby_col) %>%
+      na.omit() %>%
+      hchart(type = "column", hcaes(x = !! groupby_col, y = n)) %>%
+      # hc_colors(colors = bar_color) %>%
+      hc_colorAxis(stops = color_stops(colors = viridis(10))) %>%
+      # hc_colorAxis(stops = color_stops(colors = rev(brewer.pal(10, name = "YlGnBu")))) %>%
+      hc_title(text = title) %>%
+      hc_legend(enabled = FALSE)
+      
+  } else {
+    df %>%
+      count(!! groupby_col) %>%
+      hchart(type = "column", hcaes(x = !! groupby_col, y = n)) %>%
+      # hc_colors(colors = bar_color) %>%
+      hc_colorAxis(stops = color_stops(colors = viridis(10))) %>%
+      # hc_colorAxis(stops = color_stops(colors = rev(brewer.pal(10, name = "YlGnBu")))) %>%
+      hc_title(text = title) %>%
+      hc_legend(enabled = FALSE)
+  }
+}
+
+
+
+## Heatmap for question df
+groupbyQuesHeatmap <- function(df, groupby_col, title, target_col) {
+  
+  
+  ques_df <- createMultiQuesDF(df = df, extra_cols = groupby_col, target_col = target_col, remove_cols = "OTHER_TEXT")
+  
+  
+  groupby_col <- sym(groupby_col)
+  target_col <- sym(target_col)
+
+  ques_df <- ques_df %>%
+              group_by(!! groupby_col) %>%
+              summarise_all(function(x) sum(x))
+
+  x_axis_name <- questions_df_2019 %>% select(!! target_col) %>% pull()
+  
+
+  ques_df %>%
+    gather(key = "key", value = "n", - !! groupby_col) %>%
+    group_by(!! groupby_col, key) %>%
+    na.omit() %>%
+    group_by(!! groupby_col) %>%
+    mutate(n_percent = round(n/sum(n) * 100, 2)) %>%
+    hchart(type = "heatmap", hcaes(x = key, y = !! groupby_col, value = n_percent, color = n_percent)) %>%
+    hc_colorAxis(stops = color_stops(colors = viridis(10))) %>%
+    hc_xAxis(title = list(text = x_axis_name)) %>%
+    hc_title(text = title) %>%
+    hc_tooltip()
+}
+
+
+
+## Plot barchart of a column
+groupbyQuesBar <- function(df, groupby_col, title, remove_na = TRUE) {
+  
+  ques_df <- createMultiQuesDF(df = df, extra_cols = c(), target_col = groupby_col, remove_cols = "OTHER_TEXT")
+
+  groupby_col <- sym(groupby_col)
+  
+  ques_df <- ques_df %>%
+              summarise_all(function(x) sum(x)) %>%
+              gather(key = !! groupby_col, value = "value")
+  
+  x_axis_name <- questions_df_2019 %>% select(!! groupby_col) %>% pull()
+  
+  if (remove_na == TRUE) {
+    ques_df %>%
+      na.omit() %>%
+      hchart(type = "column", hcaes(x = !! groupby_col, y = value)) %>%
+      # hc_colorAxis(stops = color_stops(colors = rev(brewer.pal(5, name = "YlGnBu")))) %>%
+      hc_xAxis(title = list(text = x_axis_name)) %>%
+      hc_legend(enabled = FALSE) %>%
+      hc_title(text = title) %>%
+      hc_tooltip()
+
+  } else {
+    ques_df %>%
+      hchart(type = "column", hcaes(x = !! groupby_col, y = value)) %>%
+      # hc_colorAxis(stops = color_stops(colors = rev(brewer.pal(5, name = "YlGnBu")))) %>%
+      hc_xAxis(title = list(text = x_axis_name)) %>%
+      hc_legend(enabled = FALSE) %>%
+      hc_title(text = title) %>%
+      hc_tooltip()
+  }
+}
+
+
+
+
+
+
+## Preprocess 2019 data
+mcr_df_2019 <- mcr_df_2019 %>% 
+                  filter(row_number() != 1) %>%
+                  rename(
+                    time_to_finish = `Time from Start to Finish (seconds)`,
+                    age = Q1,
+                    gender = Q2,
+                    country = Q3,
+                    education = Q4,
+                    designation = Q5,
+                    company_size = Q6,
+                    ds_team_size_at_work = Q7,
+                    ml_at_company = Q8,
+                    yearly_salary = Q10,
+                    money_spent_on_ml_last_5_yrs = Q11,
+                    data_analysis_tool = Q14,
+                    coding_years_to_analyze_data = Q15,
+                    recom_prog_lang_to_beginners = Q19,
+                    used_tpu = Q22,
+                    years_used_ml = Q23
+                  ) %>%
+                  filter(gender %in% c("Female", "Male")) %>%
+                  mutate_if(is.character, function(x) as_factor(x)) %>%
+                  mutate(
+                    age = fct_relevel(age, "18-21", "22-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-69", "70+"),
+                    ds_team_size_at_work = fct_relevel(ds_team_size_at_work, "0", "1-2", "3-4", "5-9", "10-14", "15-19", "20+"),
+                    yearly_salary = fct_relevel(yearly_salary, "$0-999", "1,000-1,999", "2,000-2,999", "3,000-3,999", "4,000-4,999", "5,000-7,499", "7,500-9,999", "10,000-14,999", "15,000-19,999", "20,000-24,999", "25,000-29,999", "30,000-39,999", "40,000-49,999", "50,000-59,999", "60,000-69,999", "70,000-79,999", "80,000-89,999", "90,000-99,999", "100,000-124,999", "125,000-149,999", "150,000-199,999", "200,000-249,999",  "250,000-299,999", "300,000-500,000", "> $500,000"),
+                    money_spent_on_ml_last_5_yrs = fct_relevel(money_spent_on_ml_last_5_yrs, "$0 (USD)", "$1-$99", "$100-$999", "$1000-$9,999", "$10,000-$99,999",  "> $100,000 ($USD)"),
+                    years_used_ml = fct_relevel(years_used_ml, "< 1 years" , "1-2 years", "2-3 years", "3-4 years", "4-5 years", "5-10 years", "10-15 years", "20+ years"),
+                    company_size = fct_relevel(company_size, "0-49 employees", "50-249 employees", "250-999 employees", "1000-9,999 employees", "> 10,000 employees"),
+                    education = fct_relevel(education, "No formal education past high school", "Some college/university study without earning a bachelor’s degree", "Professional degree", "Bachelor’s degree", "Master’s degree", "Doctoral degree", "I prefer not to answer"),
+                    coding_years_to_analyze_data = fct_relevel(coding_years_to_analyze_data, "I have never written code", "< 1 years", "1-2 years", "3-5 years", "5-10 years", "10-20 years", "20+ years")
+                  )
+
+## Preprocess 2018 data
+# mcr_df_2018 <- mcr_df_2018 %>%
+#                 filter(row_number() != 1) %>%
+#                 rename(
+#                   time_to_finish = `Time from Start to Finish (seconds)`,
+#                   gender = Q1,
+#                   age = Q2,
+#                   country = Q3,
+#                   education = Q4,
+#                   designation = Q6,
+#                   yearly_salary = Q9,
+#                   ml_at_company = Q10,
+#                   data_analysis_tool = Q12_MULTIPLE_CHOICE,
+#                   recom_prog_lang_to_beginners = Q18,
+#                   coding_years_to_analyze_data = Q24, 
+#                   years_used_ml = Q25
+#                   )
+```
+
+
+Home 
+===========================================
+
+Column {data-width=400}
+-------------------------------------------
+
+
+
+### Participation over the years
+  
+```{r}
+mcr_df_2019 %>%
+  count(gender) %>%
+  hchart(type = "column", hcaes(x = gender, y = n, color = n))
+  # hc_colorAxis(stops = color_stops(colors = viridis(10)))
+```
+
+### Education Distribution of the Participants
+```{r}
+mcr_df_2019 %>% 
+  count(education) %>% 
+  na.omit() %>%
+  hchart(type = "bar", hcaes(x = education, y = n, color = n))
+  # hc_colorAxis(stops = color_stops(colors = viridis(10)))
+```
+
+### Age distribution of participants
+```{r}
+mcr_df_2019 %>%
+  count(age) %>%
+  hchart(type = "column", hcaes(x = age, y = n, color = n)) 
+  # hc_colorAxis(stops = color_stops(colors = viridis(7)))
+```
+
+
+
+Column {data-width=600}
+-------------------------------------------
+
+
+### Participation across countries
+
+```{r}
+data(worldgeojson, package = "highcharter")
+
+max_users <- max(mcr_df_2019 %>% count(country) %>% select(n))
+
+users_per_country <- mcr_df_2019 %>%
+  count(country) %>%
+  filter(!(country %in% c("Other", "I do not wish to disclose my location",'In which country do you currently reside?'))) %>%
+  mutate(iso2 = countrycode(country, origin = "country.name", destination = "iso3c")) %>%
+  ungroup()
+
+highchart() %>%
+  hc_add_series_map(worldgeojson, users_per_country, value = "n", joinBy = c('name', 'country')) %>%
+  hc_colorAxis(stops = color_stops(colors = viridis(10)))
+
+```
+
+### Designation Distribution of Participants
+
+```{r}
+hctreemap2(mcr_df_2019 %>% count(designation),
+           group_vars = c("designation"),
+           size_var = "n",
+           color_var = "n",
+           layoutAlgorithm = "squarified") %>%
+           hc_colorAxis(stops = color_stops(colors = viridis::inferno(10)))
+```
+
+
+
+
+Women In STEM {.storyboard}
+===========================================
+
+
+### Demographic, Education, Designation, and Salary. 
+
+```{r}
+education_barplot <- groupbyColBar(mcr_df_2019, title = "Education", groupby_col = "education")
+designation_barplot <- groupbyColBar(mcr_df_2019, title = "Designation", groupby_col = "designation")
+salary_barplot <- groupbyColBar(mcr_df_2019, title = "Yearly Salary", groupby_col = "yearly_salary")
+
+gender_education_heatmap <- groupbyColHeatmap(mcr_df_2019, title = "Education Demographic in %", groupby_col =  "gender", target_col = "education", color_scheme = "YlGnBu", color_num = 5)
+gender_designation_heatmap <- groupbyColHeatmap(mcr_df_2019, title = "Designation Demographic in %", groupby_col =  "gender", target_col = "designation", color_scheme = "YlGnBu", color_num = 5)
+gender_salary_barplot <- groupbyColHeatmap(mcr_df_2019, title = "Yearly Salary Demographic in %", groupby_col =  "gender", target_col = "yearly_salary", color_scheme = "YlGnBu", color_num = 5)
+
+
+hw_grid(education_barplot, designation_barplot, salary_barplot, gender_education_heatmap, gender_designation_heatmap, gender_salary_barplot, ncol = 3)
+```
+
+
+***
+#### Insights
+
+* Close to 50% of the people who took this survey have a master's degree.   
+* 47% of the women respondents have a master's degree as opposed to 43% for men.    
+* Data Science and Software Engineer are the two most popular designations. Number of Students who took the respondents is nearly equal to the number of data scientists.    
+* 24% of the students are women as compared to 20% for men.   
+* There are more women who are Students, Statisticians, Product/Program Manager, Data Analyst, and Research Scientist as compared to men.   
+* More men are Data Scientists, SWEs, DBA/DB Engineers, and Data Engineers as compared to women.    
+* 6.87% women are unemployed as compared to 4.46% for men.  
+
+
+### Machine Learning at Work.
+
+```{r}
+ml_at_company_barplot <- groupbyColBar(mcr_df_2019, title = "Machine Learning at Place of Work?", groupby_col = "ml_at_company")
+ds_team_size_at_work_barplot <- groupbyColBar(mcr_df_2019, title = "Data Science Team Size", groupby_col = "ds_team_size_at_work")
+company_size_barplot <- groupbyColBar(mcr_df_2019, title = "Company Size", groupby_col = "company_size")
+  
+gender_ml_at_company_heatmap <- groupbyColHeatmap(mcr_df_2019, title = "Machine Learning at Place of Work Demographic in %", groupby_col =  "gender", target_col = "ml_at_company", color_scheme = "YlGnBu", color_num = 5)
+gender_ds_team_size_at_work_heatmap <-  groupbyColHeatmap(mcr_df_2019, title = "Data Science Team Size Demographic in %", groupby_col =  "gender", target_col = "ds_team_size_at_work", color_scheme = "YlGnBu", color_num = 5)
+gender_company_size_heatmap <- groupbyColHeatmap(mcr_df_2019, title = "Company Size Demographic in %", groupby_col =  "gender", target_col = "company_size", color_scheme = "YlGnBu", color_num = 5)
+  
+hw_grid(ml_at_company_barplot, ds_team_size_at_work_barplot, company_size_barplot, gender_ml_at_company_heatmap, gender_ds_team_size_at_work_heatmap, gender_company_size_heatmap, ncol = 3)
+```
+
+
+***
+#### Insights  
+
+* Majority of the respondents are exploring ML models and may put a model into production one day at Work. A close second is the number of people who've put a model in production in the last 2 years.   
+* More women (20.22%) do no use ML at work as opposed to men (18%).     
+* More men(19.69%) work in teams that have well established ML methods at work as opposed to women (16.05%).    
+* A large majority of the respondents work in Data Science teams of size 1-2 or 20+ ie. either a small exploratory team or a full fledged team.    
+* More women (24.48%) work in team of size 20+ as opposed to men (23.08%).     
+* More men (22.47%) work in team of size 1-2 as opposed women (19.44%).       
+
+
+
+### Tools and Technologies used in Data Science. 
+
+```{r}
+ml_tools_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "ML Tools", groupby_col =  "Q25")
+gender_ml_tools_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "ML Tools Demographic %", groupby_col = "gender", target_col = "Q25")   
+
+db_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "RDBMS Products", groupby_col =  "Q34")
+gender_db_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "RDBMS Products Demographic %", groupby_col = "gender", target_col = "Q34")   
+
+automl_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "AutoML Products", groupby_col =  "Q33")
+gender_automl_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "AutoML Tools Demographic %", groupby_col = "gender", target_col = "Q33")   
+
+cloud_computing_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Cloud Computing Products", groupby_col =  "Q30")
+gender_cloud_computing_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Cloud Computing Demographic %", groupby_col = "gender", target_col = "Q30")   
+
+ml_frameworks_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "ML Frameworks Products", groupby_col =  "Q28")
+gender_ml_frameworks_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "ML Frameworks Demographic %", groupby_col = "gender", target_col = "Q28")
+
+dataviz_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Data Viz Tools", groupby_col =  "Q20")
+gender_dataviz_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Data Viz Tools Demographic %", groupby_col = "gender", target_col = "Q20")
+
+ide_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "IDEs", groupby_col =  "Q16")
+gender_ide_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "IDEs Demographic %", groupby_col = "gender", target_col = "Q16")
+
+notebook_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Hosted Notebook Products", groupby_col =  "Q17")
+gender_notebook_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Hosted Notebooks Demographic %", groupby_col = "gender", target_col = "Q17")
+
+hw_grid(db_barplot, ml_frameworks_barplot, dataviz_barplot, ide_barplot, notebook_barplot, 
+        gender_db_heatmap, gender_ml_frameworks_heatmap, gender_dataviz_heatmap, gender_ide_heatmap, gender_notebook_heatmap, ncol = 5)
+```
+
+
+*** 
+#### Insights
+
+* MySQL and PostgresSQL are the most used RDBMS products.    
+* More women (23.51%) use MySQL as compared to men (22.28%). More men (15.73%) use PostgresSQL as compared to women (13.42%).     
+* Scikit-learn is by far the most popular ML framework used by close to 50% of the respondents. Keras is a close second in popularity.   
+* More women (25.32%) use scikit-learn in Python as compared to men (22.98%). More women (3.52%) use Caret, a ML library in R, as compared to men (2.72%).   
+* Men use deep learning Frameworks such as PyTorch, Tensorflow, and Keras than women.    
+* Matplotlib and Seaborn are the most popular data visualization libraries. A close third is the ggplot2 library.    
+* More men (34.11%) use matplotlib library as compared to women (31.47%). More women (17.41%) use ggplot2 library as compared to men (12.71%).  
+* Jupyter notebook/lab is the most popular editor used by over 50% of the respondents. VScode and RStudio come a close second.  
+* Kaggle Kernels and Google Colab are the most popular hosted notebook services.   
+
+
+
+### Algorithms used in ML (NLP and Computer Vision).
+
+```{r}
+nlp_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Natural Language Processing", groupby_col =  "Q27")
+gender_nlp_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Natural Language Processing Demographic %", groupby_col = "gender", target_col = "Q27")   
+
+mlalgo_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "ML Tools", groupby_col =  "Q25")
+gender_mlalgo_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "ML Tools Demographic %", groupby_col = "gender", target_col = "Q25")   
+
+computervision_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Computer Vision", groupby_col =  "Q26")
+gender_computervision_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Computer Vision Demographic %", groupby_col = "gender", target_col = "Q26")   
+
+
+hw_grid(nlp_barplot, mlalgo_barplot, computervision_barplot, gender_nlp_heatmap, gender_mlalgo_heatmap, gender_computervision_heatmap, ncol = 3)
+```
+
+
+***
+#### Insights
+
+* Word embeddings are the most popular NLP technique used followed by encoder decoder models.    
+* Automated Model Selection is the most popular tool used followed by Data Augmentation Techniques.   
+* Image classification is the most common computer vision method used. 
+
+
+
+### Coding Experience and Recommendations. 
+
+
+```{r}
+time_writing_code_barplot <- groupbyColBar(df = mcr_df_2019, title = "How long have you been Writing Code to Analyse Data?", groupby_col = "coding_years_to_analyze_data")
+gender_time_writing_code_heatmap <- groupbyColHeatmap(df = mcr_df_2019, title = "How long have you been Writing Code to Analyse Data? Demographic %", groupby_col = "gender", target_col = "coding_years_to_analyze_data", color_scheme = "YlGnBu", color_num = 5)
+
+proglang_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Programming Language", groupby_col =  "Q18")
+gender_proglang_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Programming Language Demographic %", groupby_col = "gender", target_col = "Q18")
+
+proglang_beginner_barplot <- groupbyColBar(df = mcr_df_2019, title = "Recommended Programming Language for Beginners",  groupby_col =  "recom_prog_lang_to_beginners")
+gender_proglang_beginner_heatmap <- groupbyColHeatmap(df = mcr_df_2019, title = "Recommended Programming Language for Beginners Demographic %",  groupby_col = "gender", target_col = "recom_prog_lang_to_beginners", color_scheme = "YlGnBu", color_num = 5)
+
+
+hw_grid(time_writing_code_barplot, proglang_barplot, proglang_beginner_barplot, gender_time_writing_code_heatmap, gender_proglang_heatmap, gender_proglang_beginner_heatmap, ncol = 3)
+```
+
+
+***
+#### Insights
+
+* Close to 50% of the respondents have spent 0-2 years writing code to analyze data.   
+* More women (28.88%) have less than 1 year of experience than men (23.79%) in writing code to analyze data. More men have >1 year of experience in writing code as compared to women.  
+* Python is the most popular programming language used followed by SQL and R.  
+* Python is by far the most recommended language for beginners with over 50% of the respondents recommeding it. R is a close second.  
+* More men (79.8%) recommend Python as compared to women (73.38%). While more women (11.4%) recommend R as compared to men (8.94%). 
+
+
+### Data Science Media and Courses Platforms.
+
+```{r}
+media_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Data Science Media Platform", groupby_col =  "Q12")
+gender_media_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Data Science Media Platform Demographic %", groupby_col = "gender", target_col = "Q12")   
+
+courses_barplot <- groupbyQuesBar(df = mcr_df_2019, title = "Data Science Courses", groupby_col =  "Q13")
+gender_courses_heatmap <- groupbyQuesHeatmap(df = mcr_df_2019, title = "Data Science Courses Demographic %", groupby_col = "gender", target_col = "Q13")
+
+hw_grid(media_barplot, courses_barplot, gender_media_heatmap, gender_courses_heatmap, ncol = 2)
+```
+
+
+***
+#### Insights  
+
+* Kaggle is the most followed data science media source followed by blogs such as Towards Data Science.    
+* More women consume content from Kaggle and Blogs as compared to men.    
+* Coursera, Kaggle, Udemy, and University are the most popular sources of learning data science through courses.    
+* More women (13.55%) learn through University courses than men (10.77%).  
+
+
+
+R vs Python {.storyboard}
+===========================================
+
+
+
+### Which are the most popular programming languages?
+
+```{r}
+r_python_demographic_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c("age", "gender", "country", "designation", "education", "yearly_salary", "coding_years_to_analyze_data"), target_col = "Q18", remove_cols = "OTHER")
+```
+
+```{r}
+r_py_barplot <- r_python_demographic_df %>%
+                          select(R, Python) %>%
+                          mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+                          mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+                          mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+                          mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+                          select(-c(Python, R)) %>%
+                          summarise_all(function(x) sum(x)) %>%
+                          gather(key = "key", value = "value") %>%
+                          hchart(type = "column", hcaes(x = key, y = value, color = value)) %>%
+                          hc_xAxis(title = list(text = "R or Python")) %>%
+                          hc_colorAxis(stops = color_stops(colors = viridis(10))) %>%
+                          hc_title(text = "Distribution of R/Python")
+                          # hc_colors(colors = c("green", "blue", "yellow", "purple"))
+
+all_lang_treeplot <- hctreemap2(r_python_demographic_df %>%
+                                select(-c(age, gender, country, designation, yearly_salary, education, coding_years_to_analyze_data)) %>%
+                                summarise_all(function(x) sum(x)) %>%
+                                gather(key = "key", value = "value"),
+                                group_vars = c("key"),
+                                         size_var = "value",
+                                         color_var = "value",
+                                         layoutAlgorithm = "squarified") %>%
+                                         hc_colorAxis(stops = color_stops(colors = viridis(10))
+                              ) %>%
+                              hc_title(text = "Programming Languages Distribution")
+```
+
+```{r}
+hw_grid(all_lang_treeplot, r_py_barplot, ncol = 1)
+```
+
+
+
+***
+
+#### Insights 
+
+* Python is most popular programming language followed by SQL and R.   
+* A lot more people use only Python as compared using R. 
+
+### Where is R/Python being used?
+
+```{r}
+r_py_world_df <- r_python_demographic_df %>%
+                    select(country, R, Python) %>%
+                    group_by(country) %>%
+                    summarise(R = sum(R), Python = sum(Python)) %>%
+                    mutate(iso2 = countrycode(country, origin = "country.name", destination = "iso3c")) %>%
+                    ungroup()
+
+
+r_wordplot <- highchart() %>% hc_add_series_map(worldgeojson, r_py_world_df, value = "R", joinBy = c('name', 'country')) %>% hc_title(text = "R Users in the World")
+py_wordplot <- highchart() %>% hc_add_series_map(worldgeojson, r_py_world_df, color="green", value = "Python", joinBy = c('name', 'country')) %>% hc_colors(colors = c("green")) %>% hc_title(text = "Python Users in the World")
+
+top_5_r_countries <- r_py_world_df %>%
+                        select(country, R) %>%
+                        filter(country != "Other") %>%
+                        arrange(-R) %>%
+                        head(10) %>%
+                        hchart(type = "column", hcaes(x = country, y = R)) %>%
+                        hc_title(text = "Top-10 Countries where R is used")
+  
+top_5_py_countries <- r_py_world_df %>%
+                        select(country, Python) %>%
+                        filter(country != "Other") %>%
+                        arrange(-Python) %>%
+                        head(10) %>%
+                        hchart(type = "column", hcaes(x = country, y = Python)) %>%
+                        hc_colors(colors = c("green")) %>%
+                        hc_title(text = "Top-10 Countries where Python is used")
+
+hw_grid(r_wordplot, py_wordplot, top_5_r_countries, top_5_py_countries, ncol = 2)
+```
+
+
+***
+#### Insights
+
+* United States and India are the countries where R and Python is used the most.  
+* United States has more R users while India has more Python users. 
+
+
+### Who is using R and Python?
+```{r}
+r_py_demographics_barplot <- function(df, groupby_col, title) {
+  
+  groupby_col <- sym(groupby_col)
+  
+  df %>%
+    select(!! groupby_col, Python, R) %>%
+    group_by(!! groupby_col) %>%
+    summarise(R = sum(R), Python = sum(Python)) %>%
+    gather(key = "language", value = "n", -!! groupby_col) %>%
+    na.omit() %>%
+    hchart(type = "column", hcaes(x = !! groupby_col, y = n, group = language)) %>%
+    hc_colors(colors = c("green", "darkblue")) %>%
+    hc_title(text = title)
+}
+
+
+age_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "age", title = "Age vs R/Python users")
+gender_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "gender", title = "Gender vs R/Python users")
+education_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "education", title = "Education vs R/Python users")
+designation_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "designation", title = "Designation vs R/Python users")
+yearly_salary_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "yearly_salary", title = "Salary vs R/Python users")
+coding_years_to_analyze_data_r_py_barplot <- r_py_demographics_barplot(r_python_demographic_df, groupby_col = "coding_years_to_analyze_data", title = "Coding Experience vs R/Python users")
+
+hw_grid(age_r_py_barplot, gender_r_py_barplot, education_r_py_barplot, designation_r_py_barplot, yearly_salary_r_py_barplot, coding_years_to_analyze_data_r_py_barplot, ncol = 3)
+```
+
+*** 
+
+#### Insights
+
+* People in the age group 25-29 use R/Python the most.    
+* Data Scientist use R and Python the most as compared to other designations. Software Engineers use Python way more than R users.    
+* Python users consistently all more salary across all salary ranges.    
+* Higher number of Statisticians use R as compared to Python.    
+* More people with 1-2 years of coding experience use Python while more people with 3-5 years of coding experience use R.    
+* People with Master's degree use Python and R more as compared all other education degrees.  
+
+
+### Algorithms used in ML (NLP, AutoML, and Computer Vision).
+
+```{r}
+mlalgo_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q24", remove_cols = "OTHER")
+nlp_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q27", remove_cols = "OTHER")
+cv_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q26", remove_cols = "OTHER")
+automl_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q33", remove_cols = "OTHER")
+
+
+r_py_mlalgo_df <- cbind(r_python_demographic_df %>% select(R, Python), mlalgo_df)
+r_py_nlp_df <- cbind(r_python_demographic_df %>% select(R, Python), nlp_df)
+r_py_cv_df <- cbind(r_python_demographic_df %>% select(R, Python), cv_df)
+r_py_automl_df <- cbind(r_python_demographic_df %>% select(R, Python), automl_df)
+
+
+r_py_mlalgo_heatmap <- r_py_mlalgo_df %>%
+                            mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+                            mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+                            mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+                            mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+                            select(-c(R, Python)) %>%
+                            group_by(only_R, only_Py, both, neither) %>%
+                            summarise_all(function(x) sum(x)) %>%
+                            gather(key = "language", value = "value", only_R:neither) %>%
+                            filter(value == 1) %>%
+                            select(-value) %>%
+                            select(language, everything()) %>%
+                            gather(key = "ml_algo", value = "value", -language) %>%
+                            group_by(ml_algo) %>% 
+                            mutate(value = round(value/sum(value) * 100, 2)) %>%
+                            hchart(type = "heatmap", hcaes(x = ml_algo, y = language, value = value)) %>%
+                            hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Purples"))) %>%
+                            hc_title(text = "ML Algorithms vs R/Python")
+
+
+r_py_nlp_heatmap <- r_py_nlp_df %>%
+                            mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+                            mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+                            mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+                            mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+                            select(-c(R, Python)) %>%
+                            group_by(only_R, only_Py, both, neither) %>%
+                            summarise_all(function(x) sum(x)) %>%
+                            gather(key = "language", value = "value", only_R:neither) %>%
+                            filter(value == 1) %>%
+                            select(-value) %>%
+                            select(language, everything()) %>%
+                            gather(key = "nlp", value = "value", -language) %>%
+                            group_by(nlp) %>% 
+                            mutate(value = round(value/sum(value) * 100, 2)) %>%
+                            hchart(type = "heatmap", hcaes(x = nlp, y = language, value = value)) %>%
+                            hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Greens"))) %>%
+                            hc_title(text = "NLP Tasks vs R/Python")
+
+
+r_py_cv_heatmap <- r_py_cv_df %>%
+                            mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+                            mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+                            mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+                            mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+                            select(-c(R, Python)) %>%
+                            group_by(only_R, only_Py, both, neither) %>%
+                            summarise_all(function(x) sum(x)) %>%
+                            gather(key = "language", value = "value", only_R:neither) %>%
+                            filter(value == 1) %>%
+                            select(-value) %>%
+                            select(language, everything()) %>%
+                            gather(key = "cv", value = "value", -language) %>%
+                            group_by(cv) %>% 
+                            mutate(value = round(value/sum(value) * 100, 2)) %>%
+                            hchart(type = "heatmap", hcaes(x = cv, y = language, value = value)) %>%
+                            hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Blues"))) %>%
+                            hc_title(text = "Computer Vision Tasks vs R/Python")
+
+
+r_py_automl_heatmap <- r_py_automl_df %>%
+                            mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+                            mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+                            mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+                            mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+                            select(-c(R, Python)) %>%
+                            group_by(only_R, only_Py, both, neither) %>%
+                            summarise_all(function(x) sum(x)) %>%
+                            gather(key = "language", value = "value", only_R:neither) %>%
+                            filter(value == 1) %>%
+                            select(-value) %>%
+                            select(language, everything()) %>%
+                            gather(key = "automl", value = "value", -language) %>%
+                            group_by(automl) %>% 
+                            mutate(value = round(value/sum(value) * 100, 2)) %>%
+                            hchart(type = "heatmap", hcaes(x = automl, y = language, value = value)) %>%
+                            hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Oranges"))) %>%
+                            hc_title(text = "AutoML Tasks vs R/Python")
+
+hw_grid(r_py_mlalgo_heatmap, r_py_nlp_heatmap, r_py_cv_heatmap, r_py_automl_heatmap, ncol = 2)
+```
+
+
+
+```{r}
+# media_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q12", remove_cols = "OTHER")
+# courses_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q13", remove_cols = "OTHER")
+# ide_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q16", remove_cols = "OTHER")
+# dataviz_df <- createMultiQuesDF(df = mcr_df_2019, extra_cols = c(), target_col = "Q20", remove_cols = "OTHER")
+# 
+# 
+# r_py_media_df <- cbind(r_python_demographic_df %>% select(R, Python), media_df)
+# r_py_courses_df <- cbind(r_python_demographic_df %>% select(R, Python), courses_df)
+# r_py_ide_df <- cbind(r_python_demographic_df %>% select(R, Python), ide_df)
+# r_py_dataviz_df <- cbind(r_python_demographic_df %>% select(R, Python), dataviz_df)
+# 
+# 
+# 
+# r_py_media_heatmap <- r_py_media_df %>%
+#                             mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+#                             mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+#                             mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+#                             mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+#                             select(-c(R, Python)) %>%
+#                             group_by(only_R, only_Py, both, neither) %>%
+#                             summarise_all(function(x) sum(x)) %>%
+#                             gather(key = "language", value = "value", only_R:neither) %>%
+#                             filter(value == 1) %>%
+#                             select(-value) %>%
+#                             select(language, everything()) %>%
+#                             gather(key = "media", value = "value", -language) %>%
+#                             group_by(media) %>% 
+#                             mutate(value = round(value/sum(value) * 100, 2)) %>%
+#                             hchart(type = "heatmap", hcaes(x = media, y = language, value = value)) %>%
+#                             hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Blues"))) %>%
+#                             hc_title(text = "DS Media vs R/Python in %")
+# 
+# 
+# r_py_courses_heatmap <- r_py_courses_df %>%
+#                             mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+#                             mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+#                             mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+#                             mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+#                             select(-c(R, Python)) %>%
+#                             group_by(only_R, only_Py, both, neither) %>%
+#                             summarise_all(function(x) sum(x)) %>%
+#                             gather(key = "language", value = "value", only_R:neither) %>%
+#                             filter(value == 1) %>%
+#                             select(-value) %>%
+#                             select(language, everything()) %>%
+#                             gather(key = "courses", value = "value", -language) %>%
+#                             group_by(courses) %>%
+#                             mutate(value = round(value/sum(value) * 100, 2)) %>%
+#                             hchart(type = "heatmap", hcaes(x = courses, y = language, value = value)) %>%
+#                             hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Purples"))) %>%
+#                             hc_title(text = "DS Courses vs R/Python in %")
+# 
+# 
+# r_py_ide_heatmap <- r_py_ide_df %>%
+#                             mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+#                             mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+#                             mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+#                             mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+#                             select(-c(R, Python)) %>%
+#                             group_by(only_R, only_Py, both, neither) %>%
+#                             summarise_all(function(x) sum(x)) %>%
+#                             gather(key = "language", value = "value", only_R:neither) %>%
+#                             filter(value == 1) %>%
+#                             select(-value) %>%
+#                             select(language, everything()) %>%
+#                             gather(key = "ide", value = "value", -language) %>%
+#                             group_by(ide) %>%
+#                             mutate(value = round(value/sum(value) * 100, 2)) %>%
+#                             hchart(type = "heatmap", hcaes(x = ide, y = language, value = value)) %>%
+#                             hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Oranges"))) %>%
+#                             hc_title(text = "IDEs vs R/Python in %")
+# 
+# 
+# r_py_dataviz_heatmap <- r_py_dataviz_df %>%
+#                             mutate(both = if_else(R == 1 & Python == 1, 1, 0)) %>%
+#                             mutate(neither = if_else(R == 0 & Python == 0, 1, 0)) %>%
+#                             mutate(only_R = if_else(R == 1 & Python == 0, 1, 0)) %>%
+#                             mutate(only_Py = if_else(R == 0 & Python == 1, 1, 0)) %>%
+#                             select(-c(R, Python)) %>%
+#                             group_by(only_R, only_Py, both, neither) %>%
+#                             summarise_all(function(x) sum(x)) %>%
+#                             gather(key = "language", value = "value", only_R:neither) %>%
+#                             filter(value == 1) %>%
+#                             select(-value) %>%
+#                             select(language, everything()) %>%
+#                             gather(key = "dataviz", value = "value", -language) %>%
+#                             group_by(dataviz) %>%
+#                             mutate(value = round(value/sum(value) * 100, 2)) %>%
+#                             hchart(type = "heatmap", hcaes(x = dataviz, y = language, value = value)) %>%
+#                             hc_colorAxis(stops = color_stops(colors = brewer.pal(5, name = "Greens"))) %>%
+#                             hc_title(text = "Data Viz Tools vs R/Python in %")
+# 
+# hw_grid(r_py_media_heatmap, r_py_courses_heatmap, r_py_ide_heatmap, r_py_dataviz_heatmap, ncol = 2)
+```
+
